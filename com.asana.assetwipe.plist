@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Unique label — must match the filename -->
+    <key>Label</key>
+    <string>com.asana.assetwipe</string>
+
+    <!-- The daemon binary installed by install-daemon.sh -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/assetwipe-daemon</string>
+    </array>
+
+    <!-- Start immediately when loaded and on every boot -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart automatically if it crashes -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Log stdout/stderr to the same file the daemon uses -->
+    <key>StandardOutPath</key>
+    <string>/var/log/assetwipe-daemon.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/assetwipe-daemon.log</string>
+</dict>
+</plist>
