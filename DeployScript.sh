@@ -116,13 +116,26 @@ check_macvdmtool() {
 
     warn "macvdmtool not found. Attempting to install..."
 
-    # Requires Xcode Command Line Tools
+    # Requires Xcode Command Line Tools — install silently via softwareupdate
     if ! xcode-select -p >/dev/null 2>&1; then
-        log "Installing Xcode Command Line Tools (you may see a system prompt)..."
-        xcode-select --install
-        echo ""
-        log "Wait for Xcode CLT install to complete, then re-run this script."
-        exit 1
+        log "Xcode Command Line Tools not found. Installing silently..."
+        touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+        CLT_PKG=$(softwareupdate -l 2>/dev/null \
+            | grep -B1 "Command Line Tools" \
+            | awk -F'*' '/^\s*\*/{print $2}' \
+            | sed 's/^ Label: //' \
+            | sort -V | tail -1)
+        rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+
+        if [[ -n "$CLT_PKG" ]]; then
+            log "Installing: $CLT_PKG"
+            sudo softwareupdate -i "$CLT_PKG" --verbose \
+                && success "Xcode Command Line Tools installed." \
+                || { error "CLT install failed. Run 'xcode-select --install' manually then re-run."; exit 1; }
+        else
+            error "Could not find Xcode CLT in softwareupdate. Run 'xcode-select --install' manually then re-run."
+            exit 1
+        fi
     fi
 
     # Clone, build, install

@@ -47,11 +47,24 @@ else
     warn "macvdmtool not found. Installing..."
 
     if ! xcode-select -p >/dev/null 2>&1; then
-        log "Xcode Command Line Tools required. Launching installer..."
-        xcode-select --install
-        echo ""
-        warn "Wait for Xcode CLT to finish installing, then re-run this installer."
-        exit 1
+        log "Xcode Command Line Tools not found. Installing silently via softwareupdate..."
+        # Non-GUI install: create the trigger file, find the CLT package, install it.
+        touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+        CLT_PKG=$(softwareupdate -l 2>/dev/null \
+            | grep -B1 "Command Line Tools" \
+            | awk -F'*' '/^\s*\*/{print $2}' \
+            | sed 's/^ Label: //' \
+            | sort -V | tail -1)
+        rm -f /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+
+        if [[ -n "$CLT_PKG" ]]; then
+            log "Installing: $CLT_PKG"
+            sudo softwareupdate -i "$CLT_PKG" --verbose \
+                && success "Xcode Command Line Tools installed." \
+                || error "CLT install failed. Run 'xcode-select --install' manually then re-run this installer."
+        else
+            error "Could not find Xcode Command Line Tools in softwareupdate. Run 'xcode-select --install' manually then re-run."
+        fi
     fi
 
     if git clone --depth 1 https://github.com/AsahiLinux/macvdmtool.git "$TMP/macvdmtool" 2>/dev/null \
