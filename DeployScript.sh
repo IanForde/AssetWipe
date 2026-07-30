@@ -87,8 +87,19 @@ except Exception as e:
 
 # True if the daemon is reachable via either channel
 daemon_available() {
-    daemon_running || [[ -f "$SCRIPT_DIR/.assetwipe-trigger" ]] || \
-        python3 -c "
+    # Socket mode (terminal on macOS)
+    daemon_running && return 0
+
+    # File trigger mode: either we're in the Linux sandbox (non-Darwin),
+    # or the macOS config points at this directory.
+    if [[ "$(uname -s 2>/dev/null)" != "Darwin" ]]; then
+        # Running inside Claude's Linux sandbox — use file triggers if writable
+        [[ -w "$SCRIPT_DIR" ]]
+        return
+    fi
+
+    # macOS without socket — check if daemon config points here
+    python3 -c "
 import json, os
 cfg = '/Library/Application Support/AssetWipe/config.json'
 d = json.load(open(cfg)).get('watch_dir','') if os.path.exists(cfg) else ''
@@ -235,7 +246,7 @@ enter_dfu_mode() {
         return 0
     fi
     log "Putting device into DFU mode..."
-    if daemon_running; then
+    if daemon_available; then
         daemon_send dfu
     else
         sudo macvdmtool dfu
@@ -259,7 +270,7 @@ wait_for_device() {
 
     while (( elapsed < timeout )); do
         local list_output
-        if daemon_running; then
+        if daemon_available; then
             list_output=$(daemon_send list 2>/dev/null) || true
         else
             list_output=$(cfgutil list 2>/dev/null) || true
@@ -286,7 +297,7 @@ restore_device() {
         return 0
     fi
     log "Starting restore..."
-    if daemon_running; then
+    if daemon_available; then
         daemon_send restore
     else
         cfgutil restore
