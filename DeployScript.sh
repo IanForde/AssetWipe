@@ -78,16 +78,17 @@ check_cfgutil() {
         fi
     done
 
-    # Sweep all broken cfgutil symlinks the installer might trip over
+    # Sweep all broken cfgutil symlinks the installer might trip over.
+    # Use || true throughout so set -e doesn't exit if paths don't exist.
     local stale_links
     stale_links=$(find /usr/local/bin /usr/local/share/man \
         -maxdepth 3 -name "cfgutil*" -type l 2>/dev/null | while read -r f; do
-            [[ ! -e "$f" ]] && echo "$f"
-        done)
+            [[ ! -e "$f" ]] && echo "$f" || true
+        done) || true
 
     if [[ -n "$stale_links" ]]; then
         warn "Removing stale cfgutil symlinks..."
-        echo "$stale_links" | xargs sudo rm -f
+        echo "$stale_links" | xargs sudo rm -f || true
     fi
 
     warn "cfgutil not found. Checking for Apple Configurator 2..."
