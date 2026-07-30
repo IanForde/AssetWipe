@@ -3,7 +3,7 @@
 #
 # Installs everything needed to run AssetWipe as a Claude skill:
 #   1. macvdmtool  (auto-built from source if missing)
-#   2. cfgutil     (auto-installed via Apple Configurator 2 if present)
+#   2. cfgutil     (auto-installed via Apple Configurator if present)
 #   3. AssetWipe privileged daemon (LaunchDaemon — runs wipes without sudo)
 #   4. AssetWipe Claude skill  (opens in Claude for one-click save)
 #
@@ -96,7 +96,7 @@ fi
 if $_cfgutil_found; then
     success "cfgutil is already installed."
 else
-    warn "cfgutil not found. Checking for Apple Configurator 2..."
+    warn "cfgutil not found. Checking for Apple Configurator..."
 
     # Remove any stale cfgutil symlinks that would block the installer
     find /usr/local/bin /usr/local/share/man \
@@ -104,34 +104,39 @@ else
             [[ ! -e "$f" ]] && { warn "Removing stale symlink: $f"; sudo rm -f "$f"; } || true
         done || true
 
-    AC2="/Applications/Apple Configurator 2.app"
-    if [[ -d "$AC2" ]]; then
+    # Support both the legacy "Apple Configurator" and the renamed "Apple Configurator"
+    AC2=""
+    for candidate in "/Applications/Apple Configurator.app" "/Applications/Apple Configurator.app"; do
+        [[ -d "$candidate" ]] && { AC2="$candidate"; break; }
+    done
+
+    if [[ -n "$AC2" ]]; then
         AC2_INSTALLER="$AC2/Contents/MacOS/installer"
         AC2_PKG=$(find "$AC2" -name "*.pkg" 2>/dev/null | head -1)
 
         if [[ -x "$AC2_INSTALLER" ]]; then
-            log "Running Apple Configurator 2 Automation Tools installer..."
+            log "Running Apple Configurator Automation Tools installer..."
             if "$AC2_INSTALLER" install 2>/dev/null || sudo "$AC2_INSTALLER" install 2>/dev/null; then
                 success "cfgutil installed."
             else
                 warn "Auto-install failed."
-                echo "  Fix: Open Apple Configurator 2 → Install Automation Tools, then re-run."
+                echo "  Fix: Open Apple Configurator → Install Automation Tools, then re-run."
                 exit 1
             fi
         elif [[ -n "$AC2_PKG" ]]; then
             log "Installing cfgutil from bundled package..."
             sudo installer -pkg "$AC2_PKG" -target / >/dev/null 2>&1 && success "cfgutil installed." || {
-                warn "Package install failed. Open Apple Configurator 2 → Install Automation Tools."
+                warn "Package install failed. Open Apple Configurator → Install Automation Tools."
                 exit 1
             }
         else
-            warn "Apple Configurator 2 is installed but the Automation Tools installer wasn't found."
-            echo "  Fix: Open Apple Configurator 2 → Install Automation Tools from the menu bar."
+            warn "Apple Configurator is installed but the Automation Tools installer wasn't found."
+            echo "  Fix: Open Apple Configurator → Install Automation Tools from the menu bar."
             exit 1
         fi
     else
         echo ""
-        echo -e "  ${RED}Apple Configurator 2 is not installed.${NC}"
+        echo -e "  ${RED}Apple Configurator is not installed.${NC}"
         echo "  Install it from the Mac App Store, then re-run this installer:"
         echo "  https://apps.apple.com/app/apple-configurator-2/id1037126344"
         echo ""

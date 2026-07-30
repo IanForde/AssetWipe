@@ -192,13 +192,16 @@ check_cfgutil() {
         echo "$stale_links" | xargs sudo rm -f || true
     fi
 
-    warn "cfgutil not found. Checking for Apple Configurator 2..."
+    warn "cfgutil not found. Checking for Apple Configurator..."
 
-    # cfgutil ships bundled inside Apple Configurator 2 as an installer package.
-    # If AC2 is installed we can run that package directly without going through the GUI.
-    local ac2_app="/Applications/Apple Configurator 2.app"
+    # cfgutil ships bundled inside Apple Configurator (formerly "Apple Configurator 2").
+    # Check for both app names — Apple renamed it but older installs keep the old name.
+    local ac2_app=""
+    for candidate in "/Applications/Apple Configurator 2.app" "/Applications/Apple Configurator.app"; do
+        [[ -d "$candidate" ]] && { ac2_app="$candidate"; break; }
+    done
 
-    if [[ -d "$ac2_app" ]]; then
+    if [[ -n "$ac2_app" ]]; then
         # Newer AC2 versions ship a custom installer binary rather than a .pkg.
         local ac2_installer="$ac2_app/Contents/MacOS/installer"
         local pkg
@@ -219,7 +222,7 @@ check_cfgutil() {
             else
                 error "Installer failed: $install_output"
                 echo ""
-                echo "  Fix: Open Apple Configurator 2 → Install Automation Tools from the menu bar."
+                echo "  Fix: Open Apple Configurator → Install Automation Tools from the menu bar."
                 echo ""
                 exit 1
             fi
@@ -229,22 +232,22 @@ check_cfgutil() {
                 success "cfgutil installed successfully."
                 return 0
             else
-                error "Installer failed. Try manually: Apple Configurator 2 → Install Automation Tools"
+                error "Installer failed. Try manually: Apple Configurator → Install Automation Tools"
                 exit 1
             fi
         else
-            error "Apple Configurator 2 is installed but the Automation Tools installer was not found inside it."
+            error "Apple Configurator is installed but the Automation Tools installer was not found inside it."
             echo ""
-            echo "  Fix: Open Apple Configurator 2 → Install Automation Tools from the menu bar."
+            echo "  Fix: Open Apple Configurator → Install Automation Tools from the menu bar."
             echo ""
             exit 1
         fi
     fi
 
     # AC2 not installed — nothing we can do automatically.
-    error "Apple Configurator 2 is not installed. cfgutil cannot be auto-installed without it."
+    error "Apple Configurator is not installed. cfgutil cannot be auto-installed without it."
     echo ""
-    echo "  1. Install Apple Configurator 2 from the Mac App Store:"
+    echo "  1. Install Apple Configurator from the Mac App Store:"
     echo "     https://apps.apple.com/app/apple-configurator-2/id1037126344"
     echo ""
     echo "  2. Re-run this script — cfgutil will be installed automatically."
