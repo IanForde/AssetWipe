@@ -146,12 +146,27 @@ sudo cp "$TMP/com.asana.assetwipe.plist" "$PLIST_DEST"
 sudo chmod 644 "$PLIST_DEST"
 sudo chown root:wheel "$PLIST_DEST"
 
+# Write config so the daemon knows where to watch for file triggers.
+# This is the bridge between Claude's sandbox and the daemon.
+WATCH_DIR="$HOME/Documents/Claude/Projects/AssetWipe"
+CONFIG_DIR="/Library/Application Support/AssetWipe"
+sudo mkdir -p "$CONFIG_DIR"
+sudo bash -c "cat > '$CONFIG_DIR/config.json'" <<EOF
+{
+    "watch_dir": "$WATCH_DIR"
+}
+EOF
+sudo chmod 644 "$CONFIG_DIR/config.json"
+
+# Ensure the watch directory exists and is writable by Claude's sandbox
+mkdir -p "$WATCH_DIR"
+
 log "Loading daemon..."
 sudo launchctl unload "$PLIST_DEST" 2>/dev/null || true
 sudo launchctl load -w "$PLIST_DEST"
 
-# Verify socket appeared
-sleep 1
+# Verify socket appeared — give the daemon a moment to bind
+sleep 3
 if [[ -S "$DAEMON_SOCKET" ]]; then
     DAEMON_STATUS=$(python3 -c "
 import socket, json

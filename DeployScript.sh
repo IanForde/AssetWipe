@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# deploy.sh — Asset Wipe Deploy Script
-# Checks dependencies, puts device into DFU mode, waits for it to appear, then restores.
+# DeployScript.sh — Asset Wipe Deploy Script
+# If the AssetWipe daemon is running, uses the privileged socket (no sudo needed).
+# Otherwise falls back to direct execution with sudo.
 
 set -euo pipefail
+
+DAEMON_SOCKET="/var/run/assetwipe.sock"
 
 # ── Flags ─────────────────────────────────────────────────────────────────────
 DRY_RUN=false
@@ -18,6 +21,80 @@ success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*"; }
 dryrun()  { echo -e "${CYAN}[DRY-RUN]${NC} $*"; }
+
+# ── Daemon communication ──────────────────────────────────────────────────────
+# Script directory — used as the file-trigger location when running from
+# Claude's sandbox (where the socket is not accessible).
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TRIGGER_FILE="$SCRIPT_DIR/.assetwipe-trigger"
+RESULT_FILE="$SCRIPT_DIR/.assetwipe-result"
+
+daemon_running() {
+    [[ -S "$DAEMON_SOCKET" ]]
+}
+
+# Send a command to the daemon. Uses the Unix socket if reachable (terminal),
+# otherwise falls back to file-based trigger via the mounted project directory
+# (Claude sandbox).
+daemon_send() {
+    local cmd="$1"
+    local timeout="${2:-600}"   # default 10 min — restore can be slow
+
+    if daemon_running; then
+        # ── Socket mode (terminal) ──────────────────────────────────────────
+        python3 -c "
+import socket, json, sys
+try:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect('$DAEMON_SOCKET')
+    s.sendall(json.dumps({'command': '$cmd'}).encode() + b'\n')
+    data = b''
+    while b'\n' not in data:
+        chunk = s.recv(4096)
+        if not chunk: break
+        data += chunk
+    r = json.loads(data.decode().strip())
+    print(r.get('output', ''))
+    sys.exit(0 if r.get('success') else 1)
+except Exception as e:
+    print(str(e), file=sys.stderr)
+    sys.exit(1)
+" 2>&1
+    else
+        # ── File trigger mode (Claude sandbox) ─────────────────────────────
+        rm -f "$RESULT_FILE"
+        echo "{\"command\": \"$cmd\"}" > "$TRIGGER_FILE"
+
+        local elapsed=0
+        while (( elapsed < timeout )); do
+            if [[ -f "$RESULT_FILE" ]]; then
+                local output success
+                output=$(python3 -c "import json; print(json.load(open('$RESULT_FILE')).get('output',''))" 2>/dev/null)
+                success=$(python3 -c "import json; print('0' if json.load(open('$RESULT_FILE')).get('success') else '1')" 2>/dev/null)
+                rm -f "$RESULT_FILE"
+                echo "$output"
+                return "${success:-1}"
+            fi
+            sleep 1
+            (( elapsed++ ))
+        done
+
+        rm -f "$TRIGGER_FILE" "$RESULT_FILE"
+        echo "Timed out waiting for daemon response after ${timeout}s" >&2
+        return 1
+    fi
+}
+
+# True if the daemon is reachable via either channel
+daemon_available() {
+    daemon_running || [[ -f "$SCRIPT_DIR/.assetwipe-trigger" ]] || \
+        python3 -c "
+import json, os
+cfg = '/Library/Application Support/AssetWipe/config.json'
+d = json.load(open(cfg)).get('watch_dir','') if os.path.exists(cfg) else ''
+exit(0 if d and os.path.isdir(d) and os.path.realpath(d) == os.path.realpath('$SCRIPT_DIR') else 1)
+" 2>/dev/null
+}
 
 # ── Dependency: macvdmtool ────────────────────────────────────────────────────
 check_macvdmtool() {
@@ -154,11 +231,15 @@ check_cfgutil() {
 # ── DFU Mode ──────────────────────────────────────────────────────────────────
 enter_dfu_mode() {
     if [[ "$DRY_RUN" == true ]]; then
-        dryrun "Would run: sudo macvdmtool dfu"
+        dryrun "Would run: macvdmtool dfu"
         return 0
     fi
     log "Putting device into DFU mode..."
-    sudo macvdmtool dfu
+    if daemon_running; then
+        daemon_send dfu
+    else
+        sudo macvdmtool dfu
+    fi
     success "DFU command sent."
 }
 
@@ -177,10 +258,18 @@ wait_for_device() {
     log "Waiting for device to appear in Apple Configurator (timeout: ${timeout}s)..."
 
     while (( elapsed < timeout )); do
-        if cfgutil list 2>/dev/null | grep -q "ECID"; then
+        local list_output
+        if daemon_running; then
+            list_output=$(daemon_send list 2>/dev/null) || true
+        else
+            list_output=$(cfgutil list 2>/dev/null) || true
+        fi
+
+        if echo "$list_output" | grep -q "ECID"; then
             success "Device detected."
             return 0
         fi
+
         sleep "$interval"
         (( elapsed += interval ))
         log "Still waiting... (${elapsed}s elapsed)"
@@ -197,7 +286,11 @@ restore_device() {
         return 0
     fi
     log "Starting restore..."
-    cfgutil restore
+    if daemon_running; then
+        daemon_send restore
+    else
+        cfgutil restore
+    fi
     success "Restore complete."
 }
 
@@ -208,11 +301,23 @@ main() {
     echo -e "${BLUE}║     AssetWipe Deploy Tool     ║${NC}"
     echo -e "${BLUE}╚═══════════════════════════════╝${NC}"
     $DRY_RUN && echo -e "${CYAN}  ⚠  DRY-RUN MODE — no changes will be made to any device${NC}"
+
+    if daemon_running; then
+        echo -e "  ${GREEN}✓  Daemon mode (socket) — no sudo required${NC}"
+    elif daemon_available; then
+        echo -e "  ${GREEN}✓  Daemon mode (file trigger) — no sudo required${NC}"
+    else
+        echo -e "  ${YELLOW}⚠  Direct mode — sudo required (run installer.sh to avoid this)${NC}"
+    fi
     echo ""
 
-    # 1. Dependency checks
-    check_macvdmtool
-    check_cfgutil
+    # Dependency checks only needed in direct mode — daemon handles its own tools
+    if ! daemon_running && ! daemon_available; then
+        check_macvdmtool
+        check_cfgutil
+    else
+        success "Daemon available — skipping local dependency checks."
+    fi
 
     echo ""
 
