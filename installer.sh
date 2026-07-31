@@ -176,8 +176,14 @@ sudo bash -c "cat > '$CONFIG_DIR/config.json'" <<EOF
 EOF
 sudo chmod 644 "$CONFIG_DIR/config.json"
 
-# Ensure the watch directory exists and is writable by Claude's sandbox
+# Ensure the watch directory exists and download DeployScript.sh into it.
+# The Claude skill runs the script from this path — it must be present.
 mkdir -p "$WATCH_DIR"
+log "Downloading DeployScript.sh..."
+curl -fsSL "$GITHUB_RAW/DeployScript.sh" -o "$WATCH_DIR/DeployScript.sh" \
+    && chmod +x "$WATCH_DIR/DeployScript.sh" \
+    && success "DeployScript.sh installed to $WATCH_DIR" \
+    || warn "Could not download DeployScript.sh — the Claude skill may not work. Re-run the installer to fix."
 
 log "Loading daemon..."
 sudo launchctl unload "$PLIST_DEST" 2>/dev/null || true
