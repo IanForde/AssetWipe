@@ -80,7 +80,9 @@ except Exception as e:
         done
 
         rm -f "$TRIGGER_FILE" "$RESULT_FILE"
-        echo "Timed out waiting for daemon response after ${timeout}s" >&2
+        echo "Timed out waiting for daemon response after ${timeout}s." >&2
+        echo "The AssetWipe daemon may not be running. Re-run the installer on your Mac:" >&2
+        echo "  curl -fsSL https://raw.githubusercontent.com/IanForde/AssetWipe/refs/heads/main/installer.sh | bash" >&2
         return 1
     fi
 }
@@ -93,9 +95,10 @@ daemon_available() {
     # File trigger mode: either we're in the Linux sandbox (non-Darwin),
     # or the macOS config points at this directory.
     if [[ "$(uname -s 2>/dev/null)" != "Darwin" ]]; then
-        # Running inside Claude's Linux sandbox — use file triggers if writable
-        [[ -w "$SCRIPT_DIR" ]]
-        return
+        # Running inside Claude's Linux sandbox — always use file triggers.
+        # macOS tools (macvdmtool, cfgutil) are never available here, so
+        # direct mode would always fail. File trigger is the only viable path.
+        return 0
     fi
 
     # macOS without socket — check if daemon config points here
